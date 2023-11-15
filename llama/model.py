@@ -5,7 +5,7 @@ import math
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
-import fairscale.nn.model_parallel.initialize as fs_init
+#import fairscale.nn.model_parallel.initialize as fs_init
 import torch
 import torch.nn.functional as F
 from torch import nn
@@ -205,6 +205,9 @@ class Attention(nn.Module):
             bias=False
         )
 
+#        self.cacke_k = None
+#        self.cache_v = None
+
         self.cache_k = torch.zeros(
             (
                 args.max_batch_size,
@@ -250,6 +253,9 @@ class Attention(nn.Module):
         xv = xv.view(bsz, seqlen, self.n_local_heads, self.head_dim)
 
         xq, xk = apply_rotary_emb(xq, xk, freqs_cis=freqs_cis)
+
+#        keys = xk
+#        values = xv
 
         self.cache_k = self.cache_k.to(xq)
         self.cache_v = self.cache_v.to(xq)
