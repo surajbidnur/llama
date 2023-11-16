@@ -311,8 +311,11 @@ class Attention(nn.Module):
 
         xq, xk = apply_rotary_emb(xq, xk, freqs_cis=freqs_cis)
 
-        keys = xk.transpose(1, 2)
-        values = xv.transpose(1, 2)
+        keys = repeat_kv(xk, self.n_rep)  # (bs, seqlen, n_local_heads, head_dim)
+        values = repeat_kv(xv, self.n_rep)  # (bs, seqlen, n_local_heads, head_dim)
+
+#        keys = xk.transpose(1, 2)
+#        values = xv.transpose(1, 2)
 
 #        self.cache_k = self.cache_k.to(xq)
 #        self.cache_v = self.cache_v.to(xq)
@@ -324,12 +327,12 @@ class Attention(nn.Module):
 #        values = self.cache_v[:bsz, : start_pos + seqlen]
 
         # repeat k/v heads if n_kv_heads < n_heads
-        keys = repeat_kv(keys, self.n_rep)  # (bs, seqlen, n_local_heads, head_dim)
-        values = repeat_kv(values, self.n_rep)  # (bs, seqlen, n_local_heads, head_dim)
+#        keys = repeat_kv(keys, self.n_rep)  # (bs, seqlen, n_local_heads, head_dim)
+#        values = repeat_kv(values, self.n_rep)  # (bs, seqlen, n_local_heads, head_dim)
 
         xq = xq.transpose(1, 2)  # (bs, n_local_heads, seqlen, head_dim)
-#        keys = keys.transpose(1, 2)
-#        values = values.transpose(1, 2)
+        keys = keys.transpose(1, 2)
+        values = values.transpose(1, 2)
         scores = torch.matmul(xq, keys.transpose(2, 3)) / math.sqrt(self.head_dim)
         if mask is not None:
             scores = scores + mask  # (bs, n_local_heads, seqlen, cache_len + seqlen)
