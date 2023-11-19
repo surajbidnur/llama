@@ -12,8 +12,8 @@ def main(
     temperature: float = 0.6,
     top_p: float = 0.9,
     max_seq_len: int = 128,
-    max_gen_len: int = 64,
-    max_batch_size: int = 4,
+    max_gen_len: int = 128,
+    max_batch_size: int = 8,
 ):
     """
     Entry point of the program for generating text using a pretrained model.
@@ -37,21 +37,33 @@ def main(
     )
 
     prompts: List[str] = [
-        # For these prompts, the expected answer is the natural continuation of the prompt
-        "I believe the meaning of life is",
-        "Simply put, the theory of relativity states that ",
-        """A brief message congratulating the team on the launch:
+        ## For these prompts, the expected answer is the natural continuation of the prompt
+        #"I believe the meaning of life is",
+        #"Simply put, the theory of relativity states that ",
+        #"""A brief message congratulating the team on the launch:
 
-        Hi everyone,
-        
-        I just """,
-        # Few shot prompt (providing a few examples before asking model to complete more);
-        """Translate English to French:
-        
-        sea otter => loutre de mer
-        peppermint => menthe poivrée
-        plush girafe => girafe peluche
-        cheese =>""",
+        #Hi everyone,
+        #
+        #I just """,
+        ## Few shot prompt (providing a few examples before asking model to complete more);
+        #"""Translate English to French:
+        #
+        #sea otter => loutre de mer
+        #peppermint => menthe poivrée
+        #plush girafe => girafe peluche
+        #cheese =>""",
+        "Wake up in the morning feelin' like P.Diggy (Hey. What up girl?)",
+        "Who's that pokemon",
+        "LLM's are going to",
+        "With great power comes",
+        "Charles Darwin's natural selection states that",
+        "The Hubble Space Telescope is a",
+        """An inaugral address to the 2023 diwali celebrations:
+
+        Deviyo aur sajjanno,
+
+        Welcome to the """,
+        "The legend of Ramayana is",
     ]
     results = generator.text_completion(
         prompts,
