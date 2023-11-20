@@ -38,7 +38,7 @@ def prompt_with_input(prompt):
 
     return txt
 
-prompts = load_dataset(DATASET_PATH, n=2000)
+prompts = load_dataset(DATASET_PATH, n=200)
 #prompts = load_dataset(DATASET_PATH, n=-1)
 print(prompts[:3])
 #outputs = [load_outputs(prompt) + '</s>' for prompt in prompts]
@@ -100,12 +100,12 @@ def save_processed_dataset(ds, name="processed_dataset"):
             #json.dump(entry, f)
             #f.write('\n')
 
-#packed_ds = pack_dataset(dataset, tokenizer, 512)
+packed_ds = pack_dataset(dataset, tokenizer, 512)
 #packed_ds = pack_dataset(dataset, tokenizer, 2048)
-packed_ds = pack_dataset(dataset, tokenizer, 4096)
+#packed_ds = pack_dataset(dataset, tokenizer, 4096)
 print("=====================================")
 #print(packed_ds)
-save_processed_dataset(packed_ds, name='processed_dataset_small_4096')
+#save_processed_dataset(packed_ds, name='processed_dataset_small_4096')
 #save_processed_dataset(packed_ds, name='processed_dataset')
 
 print("=====================================")

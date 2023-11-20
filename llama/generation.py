@@ -87,13 +87,20 @@ class Llama:
         model_args: ModelArgs = ModelArgs(
             max_seq_len=max_seq_len,
             max_batch_size=max_batch_size,
-            #n_layers = 1, n_heads = 1,
+            #n_layers = 1,
             **params,
         )
         tokenizer = Tokenizer(model_path=tokenizer_path)
         model_args.vocab_size = tokenizer.n_words
         torch.set_default_tensor_type(torch.cuda.HalfTensor)
         model = Transformer(model_args)
+
+        #pretrained_dict = dict()
+        #model_dict = model.state_dict()
+        #pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
+        #model_dict.update(pretrained_dict)
+        #model.load_state_dict(pretrained_dict, strict=False)
+
         model.load_state_dict(checkpoint, strict=False)
         print(f"Loaded in {time.time() - start_time:.2f} seconds")
 
