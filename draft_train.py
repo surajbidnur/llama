@@ -58,10 +58,7 @@ def smart_tokenizer_and_embedding_resize(
     tokenizer: torch.nn.Module,
     model: torch.nn.Module,
 ):
-    """Resize tokenizer and embedding.
-
-    Note: This is the unoptimized version that may make your embedding size not be divisible by 64.
-    """
+    
     num_new_tokens = tokenizer.add_special_tokens(special_tokens_dict)
     model.resize_token_embeddings(len(tokenizer))
 
@@ -81,7 +78,7 @@ def preprocess(
     targets: Sequence[str],
     tokenizer: torch.nn.Module,
 ) -> Dict:
-    """Preprocess the data by tokenizing."""
+    
     examples = [s + t for s, t in zip(sources, targets)]
     examples_tokenized, sources_tokenized = [_tokenize_fn(strings, tokenizer) for strings in (examples, sources)]
     input_ids = examples_tokenized["input_ids"]
@@ -92,7 +89,7 @@ def preprocess(
 
 
 class SupervisedDataset(Dataset):
-    """Dataset for supervised fine-tuning."""
+    
 
     def __init__(self, data_path: str, tokenizer: torch.nn.Module):
         super(SupervisedDataset, self).__init__()
@@ -122,7 +119,7 @@ class SupervisedDataset(Dataset):
 
 
 def _tokenize_fn(strings: Sequence[str], tokenizer: torch.nn.Module) -> Dict:
-    """Tokenize a list of strings."""
+    
     tokenized_list = [
         tokenizer(
             text,
@@ -147,7 +144,7 @@ def _tokenize_fn(strings: Sequence[str], tokenizer: torch.nn.Module) -> Dict:
 
 @dataclass
 class DataCollatorForSupervisedDataset(object):
-    """Collate examples for supervised fine-tuning."""
+    
 
     tokenizer: torch.nn.Module
 
@@ -165,7 +162,7 @@ class DataCollatorForSupervisedDataset(object):
 
 
 def make_supervised_data_module(tokenizer: torch.nn.Module, data_args) -> Dict:
-    """Make dataset and collator for supervised fine-tuning."""
+    
     train_dataset = SupervisedDataset(tokenizer=tokenizer, data_path=data_args.data_path)
     data_collator = DataCollatorForSupervisedDataset(tokenizer=tokenizer)
     return dict(train_dataset=train_dataset, eval_dataset=None, data_collator=data_collator)
@@ -187,7 +184,7 @@ def train():
         model_max_length=512,
         padding_side="right",
         use_fast=False,
-    ) # Define your own tokenizer class
+    ) 
     special_tokens_dict = dict()
     if tokenizer.pad_token is None:
         special_tokens_dict["pad_token"] = DEFAULT_PAD_TOKEN
@@ -227,9 +224,9 @@ def train():
             loss.backward()
             optimizer.step()
 
-            # Print or log training statistics if needed
+            
 
-    # Save your trained model if needed
+    
     torch.save(model.state_dict(), 'your_model.pth')
 
 
