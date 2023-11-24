@@ -2,10 +2,10 @@ import sys
 import copy
 import torch
 import json
-from torch.utils.data import Dataset, DataLoader, default_collate
+from torch.utils.data import Dataset, DataLoader
 from llama import Llama
 from dataclasses import dataclass
-#import loralib as lora
+import loralib as lora
 from torch import nn
 import numpy as np
 import matplotlib.pyplot as plt
@@ -15,6 +15,7 @@ import matplotlib.cm as cm
 DATASET_PATH = 'alpaca_dataset/alpaca_data.json'
 TOKENIZER_PATH = '/project/saifhash_1190/llama2-7b/tokenizer.model'
 CKPT_DIR = '/project/saifhash_1190/llama2-7b'
+MODEL_PATH = '/project/saifhash_1190/llama2-7b/consolidated.00.pth'
 MAX_SEQ_LEN = 256
 MAX_BATCH_SIZE = 1
 EPOCHS = 2
@@ -54,27 +55,6 @@ def formatted_prompt(prompt):
         return prompt_no_input(prompt)
     else:
         return prompt_with_input(prompt)
-
-
-#def pad_sequence(sequence, padding_token, max_seq_len=MAX_SEQ_LEN, position='left'):
-#
-#    curr_len = len(sequence)
-#
-#    if curr_len >= max_seq_len:
-#        return sequence[:max_seq_len]
-#
-#    padding_size = max_seq_len - curr_len + 1 # input size is max_seq_len + 1
-#
-#    padding_tokens = [padding_token] * padding_size
-#
-#    if position == 'left':
-#        padded_sequence = padding_tokens
-#        padded_sequence.extend(sequence) # left padding
-#    elif position == 'right':
-#        padded_sequence = sequence.copy()
-#        padded_sequence.extend(padding_tokens) # right padding
-#
-#    return padded_sequence
 
 def tokenized_dict(tokens):
     input_ids = labels = [tokenized for tokenized in tokens]
@@ -137,8 +117,6 @@ class SupervisedDataset(Dataset):
     def __getitem__(self, i):
         return dict(input_ids=self.input_ids[i], labels=self.labels[i])
 
-        #return sample
-
 @dataclass
 class DataCollatorForSupervisedDataset(object):
     """Collate examples for supervised fine-tuning."""
@@ -176,24 +154,30 @@ llama_class = Llama.build(
 
 model = llama_class.model
 model.to(device)
+
 Tokenizer = llama_class.tokenizer
-#Tokenizer.to(device)
+
 print(model)
 
-#freeze most of the model param to save memory for debugging purpose
-#for name, param in model.named_parameters():
-#    if "lm_head" not in name:
-#        param.requires_grad = False
+print("-------------------TOTAL_MODEL_PARAMS--------------------")
+pytorch_total_params = sum(p.numel() for p in model.parameters())
+print("Total model params: {0}".format(pytorch_total_params))
 
+print("-------------------TOTAL_TRAINABLE_MODEL_PARAMS--------------------")
+pytorch_total_params_grad = sum(p.numel() for p in model.parameters() if p.requires_grad)
+print("Trainable model params: {0}".format(pytorch_total_params_grad))
+
+lora.mark_only_lora_as_trainable(model)
+print("-------------------TRAINABLE_LORA_PARAMS--------------------")
+pytorch_total_params_grad_lora = sum(p.numel() for p in model.parameters() if p.requires_grad)
+print("Trainable LoRA params: {0}".format(pytorch_total_params_grad_lora))
 
 data_module = make_supervised_data_module(Tokenizer, DATASET_PATH, MAX_BATCH_SIZE)
 train_dataset = data_module["train_dataset"]
 data_collator = data_module["data_collator"]
 
-#train_dataloader = DataLoader(train_dataset, batch_size=MAX_BATCH_SIZE, shuffle=False, collate_fn=data_collator)
 train_dataloader = DataLoader(train_dataset, shuffle=False, collate_fn=data_collator)
 
-#print(len(train_dataloader))
 #print(train_dataset[0]['input_ids'].shape, train_dataset[0]['labels'].shape)
 
 def train(model, dataloader):
@@ -204,80 +188,36 @@ def train(model, dataloader):
     loss_per_epoch = list()
     for epoch in range(EPOCHS):
         losses = list()
-        #torch.set_grad_enabled(True)
         for i, data in enumerate(dataloader):
-            inputs, labels, mask = data['input_ids'].to(device), data['labels'].to(device), data["attention_mask"].to(device)
-            #inputs, labels, mask = data['input_ids'], data['labels'], data["attention_mask"]
-            #print(type(inputs))
-            #print(len(inputs), len(labels), len(mask))
-            #print(data["attention_mask"])
-            #inputs = torch.tensor(inputs).to(device)
-            #labels = torch.tensor(labels).to(device)
-            #mask = torch.tensor(mask).to(device)
-            #print(inputs.shape, labels.shape, mask.shape)
+            inputs, labels, mask = data['input_ids'].to(device), data['labels'].to(device), data['attention_mask'].to(device)
 
             optimizer.zero_grad()
 
-            outputs = model(inputs, 0, mask)
+            with torch.autocast(device_type="cuda"):
+                outputs = model(inputs, 0, mask)
 
-            shift_logits = outputs[...,:-1,:].contiguous()
-            shift_labels = labels[..., 1:].contiguous()
-            shift_logits = shift_logits.view(-1, 32000)
-            shift_labels = shift_labels.view(-1)
-            shift_labels = shift_labels.to(shift_logits.device)
-            #print(shift_logits.shape, shift_labels.shape)
+                shift_logits = outputs[...,:-1,:].contiguous()
+                shift_labels = labels[..., 1:].contiguous()
+                shift_logits = shift_logits.view(-1, 32000)
+                shift_labels = shift_labels.view(-1)
+                shift_labels = shift_labels.to(shift_logits.device)
 
-            loss = loss_fn(shift_logits, shift_labels)
-
+                loss = loss_fn(shift_logits, shift_labels)
+                assert loss.dtype is torch.float32
+                
             loss.backward()
             optimizer.step()
 
             losses.append(loss.item())
             print("Loss per batch: {}".format(loss.item()))
 
-            #break
-
         epoch_loss = np.average(losses)
         loss_per_epoch.append(epoch_loss)
         print("=======================================")
         print("Epoch: {0}, Epoch Loss: {1}".format(epoch+1, epoch_loss))
 
-#def analyze_layer_weights(layer: nn.Module):
-#    # Extract and flatten the weights of the given layer
-#    #layer_weights = layer.weight.data.cpu().view(-1)
-#    layer_weights = layer.data.cpu().view(-1)
-#    
-#    # Get layer type (Conv2d or Linear) for better title
-#    layer_type = type(layer).__name__
-#
-#    # Plot a histogram of the flattened layer weights
-#    plt.hist(layer_weights, density=True, bins=50)
-#    plt.title(f"{layer_type} Layer Weights Histogram")
-#    plt.xlabel("Weight Value")
-#    plt.ylabel("Density")
-#    plt.show()
-#
-#    # Calculate the upper and lower bounds of the range within 3 standard deviations
-#    layer_weights_3sigma_max = (layer_weights.mean() + 3 * layer_weights.std()).item()
-#    layer_weights_3sigma_min = (layer_weights.mean() - 3 * layer_weights.std()).item()
-#
-#    # Calculate the range of weights and the 3-sigma range for the layer
-#    weight_range = layer_weights.max() - layer_weights.min()
-#    sigma_range = layer_weights_3sigma_max - layer_weights_3sigma_min
-#
-#    print(f"{layer_type} Layer Weight Range: {weight_range.item()}")
-#    print(f"{layer_type} Layer 3-Sigma Range: {sigma_range}")
-
 if __name__ == "__main__":
     train(model, train_dataloader)
-
-    #for name, param in model.named_parameters():
-    #    #if 'wq' in name:
-    #        #analyze_layer_weights(param)
-    #        #print(name)
-    #        #print(param.shape)
-    #    print(name, param.shape)
-    #    #print(param.shape)
 
 #prompts = load_dataset(DATASET_PATH, n=PROMPTS)
 #print("-------------------PROMPTS--------------------")

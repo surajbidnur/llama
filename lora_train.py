@@ -5,7 +5,6 @@ import json
 from torch.utils.data import Dataset, DataLoader
 from llama import Llama
 from dataclasses import dataclass
-#import loralib as lora
 from torch import nn
 import numpy as np
 import matplotlib.pyplot as plt
@@ -16,8 +15,8 @@ import loralib as lora
 DATASET_PATH = 'alpaca_dataset/alpaca_data.json'
 TOKENIZER_PATH = '/project/saifhash_1190/llama2-7b/tokenizer.model'
 CKPT_DIR = '/project/saifhash_1190/llama2-7b'
-MAX_SEQ_LEN = 512
-MAX_BATCH_SIZE = 2
+MAX_SEQ_LEN = 256
+MAX_BATCH_SIZE = 1
 EPOCHS = 2
 PROMPTS = 20
 IGNORE_INDEX = -100
@@ -57,25 +56,25 @@ def formatted_prompt(prompt):
         return prompt_with_input(prompt)
 
 
-def pad_sequence(sequence, padding_token, max_seq_len=MAX_SEQ_LEN, position='left'):
-
-    curr_len = len(sequence)
-
-    if curr_len >= max_seq_len:
-        return sequence[:max_seq_len]
-
-    padding_size = max_seq_len - curr_len + 1 # input size is max_seq_len + 1
-
-    padding_tokens = [padding_token] * padding_size
-
-    if position == 'left':
-        padded_sequence = padding_tokens
-        padded_sequence.extend(sequence) # left padding
-    elif position == 'right':
-        padded_sequence = sequence.copy()
-        padded_sequence.extend(padding_tokens) # right padding
-
-    return padded_sequence
+#def pad_sequence(sequence, padding_token, max_seq_len=MAX_SEQ_LEN, position='left'):
+#
+#    curr_len = len(sequence)
+#
+#    if curr_len >= max_seq_len:
+#        return sequence[:max_seq_len]
+#
+#    padding_size = max_seq_len - curr_len + 1 # input size is max_seq_len + 1
+#
+#    padding_tokens = [padding_token] * padding_size
+#
+#    if position == 'left':
+#        padded_sequence = padding_tokens
+#        padded_sequence.extend(sequence) # left padding
+#    elif position == 'right':
+#        padded_sequence = sequence.copy()
+#        padded_sequence.extend(padding_tokens) # right padding
+#
+#    return padded_sequence
 
 def tokenized_dict(tokens):
     input_ids = labels = [tokenized for tokenized in tokens]
@@ -89,7 +88,7 @@ def tokenized_dict(tokens):
             )
 
 def tokenize_data(examples, tokenizer):
-    tokenized = [torch.tensor(tokenizer.encode(s, bos=False, eos=False)) for s in examples]
+    tokenized = [torch.tensor(tokenizer.encode(s, bos=True, eos=True)) for s in examples]
     input_ids = labels = [tokens for tokens in tokenized]
     input_ids_len = labels_len = [tokens.ne(tokenizer.pad_id).sum().item() for tokens in tokenized]
 
@@ -101,14 +100,14 @@ def tokenize_data(examples, tokenizer):
             )
 
 def preprocess(sources, targets, tokenizer):
-    examples = [s+t for s,t in zip(sources, targets)]
+    examples = [s + t for s, t in zip(sources, targets)]
     tokenized_examples = tokenize_data(examples, tokenizer)
     tokenized_sources = tokenize_data(sources, tokenizer)
     input_ids = tokenized_examples["input_ids"]
     labels = copy.deepcopy(input_ids)
 
     for label, source_len in zip(labels, tokenized_sources["input_ids_len"]):
-        label[:source_len] = IGNORE_INDEX
+        label[:source_len - 1] = IGNORE_INDEX
     return dict(input_ids=input_ids, labels=labels)
     
 class SupervisedDataset(Dataset):
@@ -125,7 +124,7 @@ class SupervisedDataset(Dataset):
 
         sources = [formatted_prompt(example) for example in prompt_ds]
 
-        targets = [example['output'] + str(tokenizer.eos_id) for example in prompt_ds]
+        targets = [example['output'] for example in prompt_ds]
 
         data_dict = preprocess(sources, targets, tokenizer)
 
@@ -145,6 +144,7 @@ class DataCollatorForSupervisedDataset(object):
     """Collate examples for supervised fine-tuning."""
 
     #tokenizer: transformers.PreTrainedTokenizer
+    batch_size: int = 1 #default batch size
 
     def __call__(self, instances):
             input_ids, labels = tuple([instance[key] for instance in instances] for key in ("input_ids", "labels"))
@@ -158,10 +158,10 @@ class DataCollatorForSupervisedDataset(object):
                 attention_mask=input_ids.ne(-1),
                 )
 
-def make_supervised_data_module(tokenizer, data_path):
+def make_supervised_data_module(tokenizer, data_path, batch_size):
     """Make dataset and collator for supervised fine-tuning."""
     train_dataset = SupervisedDataset(data_path, tokenizer, n=PROMPTS)
-    data_collator = DataCollatorForSupervisedDataset()
+    data_collator = DataCollatorForSupervisedDataset(batch_size)
     return dict(train_dataset=train_dataset, eval_dataset=None, data_collator=data_collator)
 
 
@@ -170,11 +170,12 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 llama_class = Llama.build(
         ckpt_dir=CKPT_DIR,
         tokenizer_path=TOKENIZER_PATH,
-        max_seq_len=256,
-        max_batch_size=1
+        max_seq_len=MAX_SEQ_LEN,
+        max_batch_size=MAX_BATCH_SIZE
         )
 
 model = llama_class.model
+model.to(device)
 Tokenizer = llama_class.tokenizer
 print(model)
 
@@ -193,18 +194,18 @@ print("Trainable LoRA params: {0}".format(pytorch_total_params_grad_lora))
 #        param.requires_grad = False
 
 
-data_module = make_supervised_data_module(Tokenizer, DATASET_PATH)
+data_module = make_supervised_data_module(Tokenizer, DATASET_PATH, MAX_BATCH_SIZE)
 train_dataset = data_module["train_dataset"]
 data_collator = data_module["data_collator"]
 
 train_dataloader = DataLoader(train_dataset, shuffle=False, collate_fn=data_collator)
 
-print(train_dataset[0]['input_ids'].shape, train_dataset[0]['labels'].shape)
+#print(train_dataset[0]['input_ids'].shape, train_dataset[0]['labels'].shape)
 
 def train(model, dataloader):
 
     optimizer = torch.optim.Adam(model.parameters())
-    loss_fn = nn.CrossEntropyLoss()
+    loss_fn = nn.CrossEntropyLoss(ignore_index=IGNORE_INDEX)
 
     loss_per_epoch = list()
     for epoch in range(EPOCHS):
@@ -237,42 +238,42 @@ def train(model, dataloader):
         print("=======================================")
         print("Epoch: {0}, Epoch Loss: {1}".format(epoch+1, epoch_loss))
 
-def analyze_layer_weights(layer: nn.Module):
-    # Extract and flatten the weights of the given layer
-    #layer_weights = layer.weight.data.cpu().view(-1)
-    layer_weights = layer.data.cpu().view(-1)
-    
-    # Get layer type (Conv2d or Linear) for better title
-    layer_type = type(layer).__name__
-
-    # Plot a histogram of the flattened layer weights
-    plt.hist(layer_weights, density=True, bins=50)
-    plt.title(f"{layer_type} Layer Weights Histogram")
-    plt.xlabel("Weight Value")
-    plt.ylabel("Density")
-    plt.show()
-
-    # Calculate the upper and lower bounds of the range within 3 standard deviations
-    layer_weights_3sigma_max = (layer_weights.mean() + 3 * layer_weights.std()).item()
-    layer_weights_3sigma_min = (layer_weights.mean() - 3 * layer_weights.std()).item()
-
-    # Calculate the range of weights and the 3-sigma range for the layer
-    weight_range = layer_weights.max() - layer_weights.min()
-    sigma_range = layer_weights_3sigma_max - layer_weights_3sigma_min
-
-    print(f"{layer_type} Layer Weight Range: {weight_range.item()}")
-    print(f"{layer_type} Layer 3-Sigma Range: {sigma_range}")
+#def analyze_layer_weights(layer: nn.Module):
+#    # Extract and flatten the weights of the given layer
+#    #layer_weights = layer.weight.data.cpu().view(-1)
+#    layer_weights = layer.data.cpu().view(-1)
+#    
+#    # Get layer type (Conv2d or Linear) for better title
+#    layer_type = type(layer).__name__
+#
+#    # Plot a histogram of the flattened layer weights
+#    plt.hist(layer_weights, density=True, bins=50)
+#    plt.title(f"{layer_type} Layer Weights Histogram")
+#    plt.xlabel("Weight Value")
+#    plt.ylabel("Density")
+#    plt.show()
+#
+#    # Calculate the upper and lower bounds of the range within 3 standard deviations
+#    layer_weights_3sigma_max = (layer_weights.mean() + 3 * layer_weights.std()).item()
+#    layer_weights_3sigma_min = (layer_weights.mean() - 3 * layer_weights.std()).item()
+#
+#    # Calculate the range of weights and the 3-sigma range for the layer
+#    weight_range = layer_weights.max() - layer_weights.min()
+#    sigma_range = layer_weights_3sigma_max - layer_weights_3sigma_min
+#
+#    print(f"{layer_type} Layer Weight Range: {weight_range.item()}")
+#    print(f"{layer_type} Layer 3-Sigma Range: {sigma_range}")
 
 if __name__ == "__main__":
     train(model, train_dataloader)
 
-    for name, param in model.named_parameters():
-        #if 'wq' in name:
-            #analyze_layer_weights(param)
-            #print(name)
-            #print(param.shape)
-        print(name, param.shape)
-        #print(param.shape)
+    #for name, param in model.named_parameters():
+    #    #if 'wq' in name:
+    #        #analyze_layer_weights(param)
+    #        #print(name)
+    #        #print(param.shape)
+    #    print(name, param.shape)
+    #    #print(param.shape)
 
 #prompts = load_dataset(DATASET_PATH, n=PROMPTS)
 #print("-------------------PROMPTS--------------------")

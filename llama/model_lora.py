@@ -410,8 +410,8 @@ class Transformer(nn.Module):
 
         self.norm = RMSNorm(params.dim, eps=params.norm_eps)
 
-        self.output = lora.Linear(
-            params.dim, params.vocab_size,
+        self.output = nn.Linear(
+            params.dim, params.vocab_size, bias=False,
         )
 
         self.freqs_cis = precompute_freqs_cis(
@@ -420,8 +420,8 @@ class Transformer(nn.Module):
             self.params.dim // self.params.n_heads, self.params.max_seq_len * 2
         )
 
-    @torch.inference_mode()
-    def forward(self, tokens: torch.Tensor, start_pos: int):
+    #@torch.inference_mode()
+    def forward(self, tokens: torch.Tensor, start_pos: int, mask):
         """
         Perform a forward pass through the Transformer model.
 
@@ -438,7 +438,7 @@ class Transformer(nn.Module):
         self.freqs_cis = self.freqs_cis.to(h.device)
         freqs_cis = self.freqs_cis[start_pos : start_pos + seqlen]
 
-        mask = None
+        #mask = None
         if seqlen > 1:
             mask = torch.full(
                 (seqlen, seqlen), float("-inf"), device=tokens.device

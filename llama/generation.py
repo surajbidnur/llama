@@ -87,7 +87,7 @@ class Llama:
         model_args: ModelArgs = ModelArgs(
             max_seq_len=max_seq_len,
             max_batch_size=max_batch_size,
-            n_layers = 1,
+            n_layers = 2,
             #**params,
         )
         tokenizer = Tokenizer(model_path=tokenizer_path)
@@ -101,7 +101,7 @@ class Llama:
         #model_dict.update(pretrained_dict)
         #model.load_state_dict(pretrained_dict, strict=False)
 
-        #model.load_state_dict(checkpoint, strict=False)
+        model.load_state_dict(checkpoint, strict=False)
         print(f"Loaded in {time.time() - start_time:.2f} seconds")
 
         return Llama(model, tokenizer)
