@@ -2,7 +2,7 @@ import sys
 import copy
 import torch
 import json
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, default_collate
 from llama import Llama
 from dataclasses import dataclass
 #import loralib as lora
@@ -56,25 +56,25 @@ def formatted_prompt(prompt):
         return prompt_with_input(prompt)
 
 
-def pad_sequence(sequence, padding_token, max_seq_len=MAX_SEQ_LEN, position='left'):
-
-    curr_len = len(sequence)
-
-    if curr_len >= max_seq_len:
-        return sequence[:max_seq_len]
-
-    padding_size = max_seq_len - curr_len + 1 # input size is max_seq_len + 1
-
-    padding_tokens = [padding_token] * padding_size
-
-    if position == 'left':
-        padded_sequence = padding_tokens
-        padded_sequence.extend(sequence) # left padding
-    elif position == 'right':
-        padded_sequence = sequence.copy()
-        padded_sequence.extend(padding_tokens) # right padding
-
-    return padded_sequence
+#def pad_sequence(sequence, padding_token, max_seq_len=MAX_SEQ_LEN, position='left'):
+#
+#    curr_len = len(sequence)
+#
+#    if curr_len >= max_seq_len:
+#        return sequence[:max_seq_len]
+#
+#    padding_size = max_seq_len - curr_len + 1 # input size is max_seq_len + 1
+#
+#    padding_tokens = [padding_token] * padding_size
+#
+#    if position == 'left':
+#        padded_sequence = padding_tokens
+#        padded_sequence.extend(sequence) # left padding
+#    elif position == 'right':
+#        padded_sequence = sequence.copy()
+#        padded_sequence.extend(padding_tokens) # right padding
+#
+#    return padded_sequence
 
 def tokenized_dict(tokens):
     input_ids = labels = [tokenized for tokenized in tokens]
@@ -88,9 +88,9 @@ def tokenized_dict(tokens):
             )
 
 def tokenize_data(examples, tokenizer):
-    tokenized = [torch.tensor(tokenizer.encode(s, bos=False, eos=False)) for s in examples]
+    tokenized = [torch.tensor(tokenizer.encode(s, bos=True, eos=True)) for s in examples]
     input_ids = labels = [tokens for tokens in tokenized]
-    input_ids_len = labels_len = [tokens.ne(tokenizer.pad_id).sum().item() for tokens in tokenized]
+    input_ids_len = labels_len = [tokens.ne(-1).sum().item() for tokens in tokenized]
 
     return dict(
             input_ids=input_ids,
@@ -107,7 +107,8 @@ def preprocess(sources, targets, tokenizer):
     labels = copy.deepcopy(input_ids)
 
     for label, source_len in zip(labels, tokenized_sources["input_ids_len"]):
-        label[:source_len] = IGNORE_INDEX
+        label[:source_len-1] = IGNORE_INDEX
+        #label[:source_len] = tokenizer.pad_id
     return dict(input_ids=input_ids, labels=labels)
     
 class SupervisedDataset(Dataset):
@@ -124,7 +125,7 @@ class SupervisedDataset(Dataset):
 
         sources = [formatted_prompt(example) for example in prompt_ds]
 
-        targets = [example['output'] + str(tokenizer.eos_id) for example in prompt_ds]
+        targets = [example['output'] for example in prompt_ds]
 
         data_dict = preprocess(sources, targets, tokenizer)
 
@@ -139,11 +140,34 @@ class SupervisedDataset(Dataset):
 
         #return sample
 
+#@dataclass
+#class DataCollatorForSupervisedDataset(object):
+#    """Collate examples for supervised fine-tuning."""
+#            
+#    batch_size: int = 2  # Default batch size
+#                    
+#    def __call__(self, instances):
+#        return self.create_batches(instances)
+#
+#    def create_batches(self, instances):
+#        # Batch the instances based on the specified batch size
+#        for i in range(0, len(instances), self.batch_size):
+#            batch = instances[i:i + self.batch_size]
+#            input_ids, labels = tuple([instance[key] for instance in batch] for key in ("input_ids", "labels"))
+#            input_ids = torch.nn.utils.rnn.pad_sequence(input_ids, batch_first=True, padding_value=-1)
+#            labels = torch.nn.utils.rnn.pad_sequence(labels, batch_first=True, padding_value=IGNORE_INDEX)
+#            yield dict(
+#                input_ids=input_ids,
+#                labels=labels,
+#                attention_mask=input_ids.ne(-1),
+#                )
+
 @dataclass
 class DataCollatorForSupervisedDataset(object):
     """Collate examples for supervised fine-tuning."""
 
     #tokenizer: transformers.PreTrainedTokenizer
+    batch_size: int = 1 #default batch size
 
     def __call__(self, instances):
             input_ids, labels = tuple([instance[key] for instance in instances] for key in ("input_ids", "labels"))
@@ -157,10 +181,10 @@ class DataCollatorForSupervisedDataset(object):
                 attention_mask=input_ids.ne(-1),
                 )
 
-def make_supervised_data_module(tokenizer, data_path):
+def make_supervised_data_module(tokenizer, data_path, batch_size):
     """Make dataset and collator for supervised fine-tuning."""
     train_dataset = SupervisedDataset(data_path, tokenizer, n=PROMPTS)
-    data_collator = DataCollatorForSupervisedDataset()
+    data_collator = DataCollatorForSupervisedDataset(batch_size)
     return dict(train_dataset=train_dataset, eval_dataset=None, data_collator=data_collator)
 
 
@@ -174,7 +198,9 @@ llama_class = Llama.build(
         )
 
 model = llama_class.model
+model.to(device)
 Tokenizer = llama_class.tokenizer
+#Tokenizer.to(device)
 print(model)
 
 #freeze most of the model param to save memory for debugging purpose
@@ -183,10 +209,11 @@ print(model)
 #        param.requires_grad = False
 
 
-data_module = make_supervised_data_module(Tokenizer, DATASET_PATH)
+data_module = make_supervised_data_module(Tokenizer, DATASET_PATH, MAX_BATCH_SIZE)
 train_dataset = data_module["train_dataset"]
 data_collator = data_module["data_collator"]
 
+#train_dataloader = DataLoader(train_dataset, batch_size=MAX_BATCH_SIZE, shuffle=False, collate_fn=data_collator)
 train_dataloader = DataLoader(train_dataset, shuffle=False, collate_fn=data_collator)
 
 print(train_dataset[0]['input_ids'].shape, train_dataset[0]['labels'].shape)
@@ -201,26 +228,34 @@ def train(model, dataloader):
         losses = list()
         #torch.set_grad_enabled(True)
         for i, data in enumerate(dataloader):
-            inputs, labels = data['input_ids'].to(device), data['labels'].to(device)
+            inputs, labels, mask = data['input_ids'].to(device), data['labels'].to(device), data["attention_mask"].to(device)
+            #inputs, labels, mask = data['input_ids'], data['labels'], data["attention_mask"]
+            #print(data["attention_mask"])
+            #inputs = torch.tensor(inputs).to(device)
+            #labels = torch.tensor(labels).to(device)
+            #mask = torch.tensor(mask).to(device)
+            #print(inputs.shape, labels.shape, mask.shape)
 
             optimizer.zero_grad()
 
-            outputs = model(inputs, 0)
+            outputs = model(inputs, 0, mask)
 
             shift_logits = outputs[...,:-1,:].contiguous()
             shift_labels = labels[..., 1:].contiguous()
             shift_logits = shift_logits.view(-1, 32000)
             shift_labels = shift_labels.view(-1)
             shift_labels = shift_labels.to(shift_logits.device)
+            #print(shift_logits.shape, shift_labels.shape)
 
             loss = loss_fn(shift_logits, shift_labels)
-            loss.requires_grad=True
-            #loss.retain_grad()
+
             loss.backward()
             optimizer.step()
 
             losses.append(loss.item())
             print("Loss per batch: {}".format(loss.item()))
+
+            #break
 
         epoch_loss = np.average(losses)
         loss_per_epoch.append(epoch_loss)

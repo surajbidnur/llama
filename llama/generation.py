@@ -59,7 +59,7 @@ class Llama:
         Args:
             ckpt_dir (str): Path to the directory containing checkpoint files.
             tokenizer_path (str): Path to the tokenizer file.
-            max_seq_len (int): Maximum sequence length for input text.
+            max_seq_len (int): m sequence length for input text.
             max_batch_size (int): Maximum batch size for inference.
             model_parallel_size (Optional[int], optional): Number of model parallel processes.
                 If not provided, it's determined from the environment. Defaults to None.
@@ -72,7 +72,7 @@ class Llama:
                 or if the model parallel size does not match the number of checkpoint files.
 
         Note:
-            This method initializes the distributed process group, sets the device to CUDA,
+            This method initializes e distributed process group, sets the device to CUDA,
             and loads the pre-trained model and tokenizer.
 
         """
@@ -87,12 +87,12 @@ class Llama:
         model_args: ModelArgs = ModelArgs(
             max_seq_len=max_seq_len,
             max_batch_size=max_batch_size,
-            #n_layers = 1,
-            **params,
+            n_layers = 1,
+            #**params,
         )
         tokenizer = Tokenizer(model_path=tokenizer_path)
         model_args.vocab_size = tokenizer.n_words
-        torch.set_default_tensor_type(torch.cuda.HalfTensor)
+        #torch.set_default_tensor_type(torch.cuda.HalfTensor)
         model = Transformer(model_args)
 
         #pretrained_dict = dict()
@@ -101,7 +101,7 @@ class Llama:
         #model_dict.update(pretrained_dict)
         #model.load_state_dict(pretrained_dict, strict=False)
 
-        model.load_state_dict(checkpoint, strict=False)
+        #model.load_state_dict(checkpoint, strict=False)
         print(f"Loaded in {time.time() - start_time:.2f} seconds")
 
         return Llama(model, tokenizer)
