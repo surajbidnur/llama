@@ -10,6 +10,7 @@ from torch import nn
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
+import loralib as lora
 
 #DATASET_PATH = 'alpaca_dataset/processed_dataset_small_4096.json'
 DATASET_PATH = 'alpaca_dataset/alpaca_data.json'
@@ -177,6 +178,15 @@ model = llama_class.model
 Tokenizer = llama_class.tokenizer
 print(model)
 
+print("-------------------TOTAL_MODEL_PARAMS--------------------")
+pytorch_total_params = sum(p.numel() for p in model.parameters())
+print("Total model params: {0}".format(pytorch_total_params))
+
+lora.mark_only_lora_as_trainable(model)
+print("-------------------TRAINABLE_LORA_PARAMS--------------------")
+pytorch_total_params_grad_lora = sum(p.numel() for p in model.parameters() if p.requires_grad)
+print("Trainable LoRA params: {0}".format(pytorch_total_params_grad_lora))
+
 #freeze most of the model param to save memory for debugging purpose
 #for name, param in model.named_parameters():
 #    if "lm_head" not in name:
@@ -214,7 +224,7 @@ def train(model, dataloader):
             shift_labels = shift_labels.to(shift_logits.device)
 
             loss = loss_fn(shift_logits, shift_labels)
-            loss.requires_grad=True
+            #loss.requires_grad=True
             #loss.retain_grad()
             loss.backward()
             optimizer.step()

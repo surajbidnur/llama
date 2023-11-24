@@ -205,10 +205,10 @@ class Attention(nn.Module):
             r=16, lora_alpha=32, lora_dropout=0.05
         )
 
-        self.wk = lora.Linear(
+        self.wk = nn.Linear(
             args.dim,
             self.n_kv_heads * self.head_dim,
-            r=16, lora_alpha=32, lora_dropout=0.05
+            bias=False,
         )
 
         self.wv = lora.Linear(
@@ -217,10 +217,10 @@ class Attention(nn.Module):
             r=16, lora_alpha=32, lora_dropout=0.05
         )
 
-        self.wo = lora.Linear(
+        self.wo = nn.Linear(
             args.n_heads * self.head_dim,
             args.dim,
-            r=16, lora_alpha=32, lora_dropout=0.05
+            bias=False,
         )
 
         self.cache_k = None
@@ -300,17 +300,14 @@ class FeedForward(nn.Module):
             hidden_dim = int(ffn_dim_multiplier * hidden_dim)
         hidden_dim = multiple_of * ((hidden_dim + multiple_of - 1) // multiple_of)
 
-        self.w1 = lora.Linear(
-            dim, hidden_dim,
-            r=16, lora_alpha=32, lora_dropout=0.05
+        self.w1 = nn.Linear(
+            dim, hidden_dim, bias=False
         )
-        self.w2 = lora.Linear(
-            hidden_dim, dim,
-            r=16, lora_alpha=32, lora_dropout=0.05
+        self.w2 = nn.Linear(
+            hidden_dim, dim, bias=False
         )
-        self.w3 = lora.Linear(
-            dim, hidden_dim,
-            r=16, lora_alpha=32, lora_dropout=0.05
+        self.w3 = nn.Linear(
+            dim, hidden_dim, bias=False
         )
 
     def forward(self, x):
@@ -423,7 +420,7 @@ class Transformer(nn.Module):
             self.params.dim // self.params.n_heads, self.params.max_seq_len * 2
         )
 
-    #@torch.inference_mode()
+    @torch.inference_mode()
     def forward(self, tokens: torch.Tensor, start_pos: int):
         """
         Perform a forward pass through the Transformer model.

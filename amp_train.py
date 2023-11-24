@@ -205,16 +205,19 @@ def train(model, dataloader):
 
             optimizer.zero_grad()
 
-            outputs = model(inputs, 0)
+            with torch.autocast(device_type="cuda"):
+                outputs = model(inputs, 0)
 
-            shift_logits = outputs[...,:-1,:].contiguous()
-            shift_labels = labels[..., 1:].contiguous()
-            shift_logits = shift_logits.view(-1, 32000)
-            shift_labels = shift_labels.view(-1)
-            shift_labels = shift_labels.to(shift_logits.device)
+                shift_logits = outputs[...,:-1,:].contiguous()
+                shift_labels = labels[..., 1:].contiguous()
+                shift_logits = shift_logits.view(-1, 32000)
+                shift_labels = shift_labels.view(-1)
+                shift_labels = shift_labels.to(shift_logits.device)
 
-            loss = loss_fn(shift_logits, shift_labels)
-            loss.requires_grad=True
+                loss = loss_fn(shift_logits, shift_labels)
+                loss.requires_grad=True
+                assert loss.dtype is torch.float32
+                
             #loss.retain_grad()
             loss.backward()
             optimizer.step()
