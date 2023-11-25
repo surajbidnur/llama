@@ -87,11 +87,11 @@ class Llama:
         model_args: ModelArgs = ModelArgs(
             max_seq_len=max_seq_len,
             max_batch_size=max_batch_size,
-            n_layers = 2,
-            #**params,
+            **params,
         )
         tokenizer = Tokenizer(model_path=tokenizer_path)
         model_args.vocab_size = tokenizer.n_words
+        #model_args.n_layers = 8
         #torch.set_default_tensor_type(torch.cuda.HalfTensor)
         model = Transformer(model_args)
 

@@ -162,3 +162,4 @@ cython_debug/
 alpaca_dataset/
 .model.py
 model.py.orig
+*.png
