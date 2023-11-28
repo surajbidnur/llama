@@ -4,6 +4,7 @@ import copy
 import torch
 import json
 from tqdm import tqdm
+from torch.nn.utils import clip_grad_norm_
 from torch.utils.data import Dataset, DataLoader
 from llama import Llama
 #from llama.tokenizer import Tokenizer
@@ -156,12 +157,14 @@ def train(model, dataloader):
 
     loss_list = list()
     gpu_mem_list = list()
+    perplexity_list = list()
 
     for epoch in range(EPOCHS):
 
         start_time = time.time()
 
         train_loss = 0
+        perplexity = 0
 
         with tqdm(dataloader, desc=f"Epoch: {epoch + 1}/{EPOCHS}", ascii=' >=') as pbar:
             for i, data in enumerate(pbar):
@@ -180,10 +183,13 @@ def train(model, dataloader):
                 loss = loss_fn(shift_logits, shift_labels)
                 
                 loss.backward()
+                
+                clip_grad_norm_(model.parameters(), 1.0)
+
                 optimizer.step()
                 scheduler.step(epoch + i / iters)
 
-                pbar.set_postfix(train_loss=F"{loss.item():.5f}")
+                pbar.set_postfix(train_loss=F"{loss.item():.6f}", perplexity=f"{torch.exp(loss):.6f}")
                 pbar.update()
 
                 train_loss += loss.item()
@@ -191,12 +197,14 @@ def train(model, dataloader):
         gpu_mem_list.append(torch.cuda.memory_allocated(device='cuda') / (1024 ** 3))
         print("Max GPU memory usage: {0:.2f}GB".format(max(gpu_mem_list)))
 
-        loss_list.append(train_loss / len(dataloader))
-        print("Average training loss: {0:.4f}".format(train_loss / len(dataloader)))
+        avg_loss = train_loss / len(dataloader)
+        loss_list.append(avg_loss)
+        perplexity_list.append(torch.exp(torch.tensor(avg_loss)).tolist())
+        print("Average training loss: {0:.6f}, Perplexity: {1:.6f}".format(avg_loss, torch.exp(torch.tensor(avg_loss)).tolist()))
 
         print("Epoch time {0:.2f} seconds".format(time.time() - start_time))
 
-    return loss_list, gpu_mem_list
+    return loss_list, gpu_mem_list, perplexity_list
 
 def evaluate(llama_class, prompts, seq_len=128):
     llama_class.model.eval()
@@ -217,10 +225,15 @@ def plot_graph(x, y, name):
     if 'mem' in name:
         plt.title("GPU memory usage (GB) vs Epochs")
         plt.ylabel(name + '(lora)')
+    if 'perplexity' in name:
+        plt.title("Perplexity vs Epochs")
+        plt.ylabel(name + '(lora)')
 
     plt.savefig(name + '.png')
 
 if __name__ == "__main__":
+
+    print("---------------EXECUTING LORA LLAMA TRAINING----------------")
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -258,13 +271,14 @@ if __name__ == "__main__":
     train_dataloader = DataLoader(train_dataset, shuffle=True, collate_fn=data_collator)
     iters = len(train_dataloader)
 
-    loss, mem = train(model, train_dataloader)
+    loss, mem, ppl = train(model, train_dataloader)
     print("Average loss: {0:.4f}, Avg GPU mem usage: {1:.2f}GB".format(sum(loss) / len(loss), sum(mem) / len(mem)))
 
     plot_graph([x+1 for x in range(EPOCHS)], loss, 'loss')
     plot_graph([x+1 for x in range(EPOCHS)], mem, 'gpu_mem')
+    plot_graph([x+1 for x in range(EPOCHS)], ppl, 'perplexity')
 
-    prompts = ["How to stay healthy?",
-            "What are the three primary colours?",]
+    prompts = ["Large Language Models are",
+            "Who is the world's most famous painter?",]
 
     evaluate(llama_class, prompts, 64)

@@ -4,6 +4,7 @@ import copy
 import torch
 import json
 from tqdm import tqdm
+from torch.nn.utils import clip_grad_norm_
 from torch.utils.data import Dataset, DataLoader
 from llama import Llama
 #from llama.tokenizer import Tokenizer
@@ -158,6 +159,7 @@ def train(model, dataloader):
 
     loss_list = list()
     gpu_mem_list = list()
+    perplexity_list = list()
 
     for epoch in range(EPOCHS):
 
@@ -165,6 +167,7 @@ def train(model, dataloader):
 
         train_loss = 0
         accumulation_loss = 0
+        perplexity = 0
         accumulation_done = True
 
         with tqdm(dataloader, desc=f'Epoch: {epoch + 1}/{EPOCHS}', ascii=' >=') as pbar:
@@ -174,7 +177,8 @@ def train(model, dataloader):
 
                 optimizer.zero_grad()
 
-                with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+                with torch.autocast(device_type='cuda', dtype=torch.float16):
+                #with torch.autocast(device_type='cuda'):
                     outputs = model(inputs, 0)
 
                     shift_logits = outputs[...,:-1,:].contiguous()
@@ -192,11 +196,13 @@ def train(model, dataloader):
                 scheduler.step(epoch + i / iters)
 
                 if (i + 1) % ACCUMULATION_STEPS == 0:
+                    clip_grad_norm_(model.parameters(), 1.0)
                     scaler.step(optimizer)
                     scaler.update()
                     accumulation_done = True
                     acc_loss = accumulation_loss / ACCUMULATION_STEPS
-                    pbar.set_postfix(train_loss=f"{acc_loss:.5f}")
+                    perplexity += torch.exp(torch.tensor(acc_loss)).tolist()
+                    pbar.set_postfix(train_loss=f"{acc_loss:.6f}", perplexity=f"{perplexity:.6f}")
                     pbar.update()
                     train_loss += acc_loss
                     accumulation_loss = 0
@@ -204,17 +210,19 @@ def train(model, dataloader):
             #if not accumulation_done:
             #    scaler.step(optimizer)
             #    scaler.update()
-            #    train_loss += loss.item()
+            #    train_loss += loss.item
 
         gpu_mem_list.append(torch.cuda.memory_allocated(device='cuda') / (1024 ** 3))
         print("Max GPU memory usage: {0:.2f}GB".format(max(gpu_mem_list)))
 
         loss_list.append(train_loss / (iters // ACCUMULATION_STEPS))
-        print("Average training loss: {0:.4f}".format(train_loss / (iters // ACCUMULATION_STEPS)))
+        avg_loss = train_loss / (len(dataloader) // ACCUMULATION_STEPS)
+        perplexity_list.append(torch.exp(torch.tensor(avg_loss)).tolist())
+        print("Average training loss: {0:.6f}, Perplexity: {1:.6f}".format(avg_loss, torch.exp(torch.tensor(avg_loss)).tolist()))
 
         print("Epoch time {0:.2f} seconds".format(time.time() - start_time))
 
-    return loss_list, gpu_mem_list
+    return loss_list, gpu_mem_list, perplexity_list
 
 def evaluate(llama_class, prompts, seq_len=128):
     llama_class.model.eval()
@@ -235,10 +243,15 @@ def plot_graph(x, y, name):
     if 'mem' in name:
         plt.title("GPU memory usage (GB) vs Epochs")
         plt.ylabel(name + '(ckpt)')
+    if 'perplexity' in name:
+        plt.title("Perplexity vs Epochs")
+        plt.ylabel(name + '(ckpt)')
 
     plt.savefig(name + '.png')
         
 if __name__ == "__main__":
+
+    print("---------------EXECUTING GRADIENT-ACCUMULATION LORA AMP LLAMA TRAINING----------------")
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -276,14 +289,15 @@ if __name__ == "__main__":
     train_dataloader = DataLoader(train_dataset, shuffle=True, collate_fn=data_collator)
     iters = len(train_dataloader)
 
-    loss, mem = train(model, train_dataloader)
+    loss, mem, ppl = train(model, train_dataloader)
     print("Average loss: {0:.4f}, Avg GPU mem usage: {1:.2f}GB".format(sum(loss) / len(loss), sum(mem) / len(mem)))
 
     plot_graph([x+1 for x in range(EPOCHS)], loss, 'loss')
     plot_graph([x+1 for x in range(EPOCHS)], mem, 'gpu_mem')
+    plot_graph([x+1 for x in range(EPOCHS)], ppl, 'perplexity')
 
     prompts = ["Large Language Models are",
-            "What are the three primary colours?",]
+            "Who is the world's most famous painter?",]
 
     evaluate(llama_class, prompts, 64)
 

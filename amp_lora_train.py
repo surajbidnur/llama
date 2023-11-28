@@ -4,6 +4,7 @@ import copy
 import torch
 import json
 from tqdm import tqdm
+from torch.nn.utils import clip_grad_norm_
 from torch.utils.data import Dataset, DataLoader
 from llama import Llama
 #from llama.tokenizer import Tokenizer
@@ -156,12 +157,14 @@ def train(model, dataloader):
 
     loss_list = list()
     gpu_mem_list = list()
+    perplexity_list = list()
 
     for epoch in range(EPOCHS):
 
         start_time = time.time()
 
         train_loss = 0
+        perplexity = 0
 
         with tqdm(dataloader, desc=f"Epoch: {epoch + 1}/{EPOCHS}", ascii=' >=') as pbar:
             for i, data in enumerate(pbar):
@@ -182,10 +185,13 @@ def train(model, dataloader):
                     assert loss.dtype is torch.float32
                 
                 loss.backward()
+
+                clip_grad_norm_(model.parameters(), 1.0)
+
                 optimizer.step()
                 scheduler.step(epoch + i / iters)
 
-                pbar.set_postfix(train_loss=F"{loss.item():.5f}")
+                pbar.set_postfix(train_loss=F"{loss.item():.6f}", perplexity=f"{torch.exp(loss):.6f}")
                 pbar.update()
 
                 train_loss += loss.item()
@@ -193,12 +199,14 @@ def train(model, dataloader):
         gpu_mem_list.append(torch.cuda.memory_allocated(device='cuda') / (1024 ** 3))
         print("Max GPU memory usage: {0:.2f}GB".format(max(gpu_mem_list)))
 
-        loss_list.append(train_loss / len(dataloader))
-        print("Average training loss: {0:.4f}".format(train_loss / len(dataloader)))
+        avg_loss = train_loss / len(dataloader)
+        loss_list.append(avg_loss)
+        perplexity_list.append(torch.exp(torch.tensor(avg_loss)).tolist())
+        print("Average training loss: {0:.6f}, Perplexity: {1:.6f}".format(avg_loss, torch.exp(torch.tensor(avg_loss)).tolist()))
 
         print("Epoch time {0:.2f} seconds".format(time.time() - start_time))
 
-    return loss_list, gpu_mem_list
+    return loss_list, gpu_mem_list, perplexity_list
 
 def evaluate(llama_class, prompts, seq_len=128):
     llama_class.model.eval()
@@ -219,10 +227,15 @@ def plot_graph(x, y, name):
     if 'mem' in name:
         plt.title("GPU memory usage (GB) vs Epochs")
         plt.ylabel(name + '(lora_amp)')
+    if 'perplexity' in name:
+        plt.title("Perplexity vs Epochs")
+        plt.ylabel(name + '(lora_amp)')
 
     plt.savefig(name + '.png')
 
 if __name__ == "__main__":
+
+    print("---------------EXECUTING AMP LORA LLAMA TRAINING----------------")
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -260,134 +273,15 @@ if __name__ == "__main__":
     train_dataloader = DataLoader(train_dataset, shuffle=True, collate_fn=data_collator)
     iters = len(train_dataloader)
 
-    loss, mem = train(model, train_dataloader)
+    loss, mem, ppl = train(model, train_dataloader)
     print("Average loss: {0:.4f}, Avg GPU mem usage: {1:.2f}GB".format(sum(loss) / len(loss), sum(mem) / len(mem)))
 
     plot_graph([x+1 for x in range(EPOCHS)], loss, 'loss')
     plot_graph([x+1 for x in range(EPOCHS)], mem, 'gpu_mem')
+    plot_graph([x+1 for x in range(EPOCHS)], ppl, 'perplexity')
 
-    prompts = ["How to stay healthy?",
-            "What are the three primary colours?",]
+    prompts = ["Large Language Models are",
+            "Who is the world's most famous painter?",]
 
     evaluate(llama_class, prompts, 64)
 
-#prompts = load_dataset(DATASET_PATH, n=PROMPTS)
-#print("-------------------PROMPTS--------------------")
-#print(prompts[:3])
-#
-#outputs = [load_outputs(prompt) for prompt in prompts]
-#print("-------------------OUTPUTS--------------------")
-#print(outputs[:3])
-#
-#sources = [formatted_prompt(prompt) for prompt in prompts]
-#print("-------------------FORMATTED_PROMPTS--------------------")
-#print(formatted_prompts[:3])
-#
-#print("-------------------DATASET--------------------")
-#print(dataset[:2])
-#
-#
-##training_data = [pad_sequence(s, 0, MAX_SEQ_LEN, 'right') for s in tokenized_data]
-#print("-------------------TRAINING_DATA--------------------")
-#print(training_data[0][:20], training_data[0][-20:], len(training_data[0]))
-#
-##sys.exit()
-#
-##train_dataset = PromptDataset(DATASET_PATH)
-#train_dataset = PromptDataset(training_data)
-#train_dataloader = DataLoader(train_dataset, batch_size=MAX_BATCH_SIZE, shuffle=False, collate_fn=torch.utils.data.default_collate)
-##d = next(iter(train_dataset))
-##print("First iteration dataset\n", d)
-#print("-------------------TRAINING_DATALOADER--------------------")
-#print(len(train_dataloader))
-#DS_LEN = len(train_dataloader)
-#
-#for i in train_dataloader:
-#    print("Input shape: {0}, Target shape: {1}".format(i['inputs'].shape, i['target'].shape))
-#    break
-#
-#print("-------------------TOTAL_MODEL_PARAMS--------------------")
-#pytorch_total_params = sum(p.numel() for p in model.parameters())
-#print("Total model params: {0}".format(pytorch_total_params))
-#
-#print("-------------------TOTAL_TRAINABLE_MODEL_PARAMS--------------------")
-#pytorch_total_params_grad = sum(p.numel() for p in model.parameters() if p.requires_grad)
-#print("Trainable model params: {0}".format(pytorch_total_params_grad))
-#
-#print("-------------------TRAINABLE_LORA_PARAMS--------------------")
-##for param in model.parameters():
-##    param.require_grad = False
-##x = sum(p.numel() for p in model.parameters() if p.requires_grad)
-##print("Trainable params after freezing: {}".format(x))
-##assert x == 0, "Error, some parameters still trainable"
-##lora.mark_only_lora_as_trainable(model)
-##pytorch_total_params_grad_lora = sum(p.numel() for p in model.parameters() if p.requires_grad)
-##print("Trainable LoRA params: {0}".format(pytorch_total_params_grad_lora))
-#
-##for name, layer in model.named_modules():
-##    print(name, layer)
-#print(model)
-#
-#print("-------------------TRAINING_STEPS--------------------")
-#train_steps = EPOCHS * DS_LEN
-#print("Training Steps: {}".format(train_steps))
-#
-##sys.exit()
-#
-#optimizer = torch.optim.Adam(model.parameters())
-#loss_fn = nn.CrossEntropyLoss()
-##scaler = torch.cuda.amp.GradScaler()
-#ACC_STEP = 8
-#
-#def train(epochs=EPOCHS, batch_size=MAX_BATCH_SIZE):
-#    loss_per_epoch = list()
-#    for epoch in range(epochs):
-#        losses = list()
-#        #torch.set_grad_enabled(True)
-#        for i, data in enumerate(train_dataloader):
-#            #inputs_tensor = torch.tensor(data['inputs'], dtype=torch.long)
-#            #labels_tensor = torch.tensor(data['target'], dtype=torch.long)
-#            #print(inputs_tensor.shape)
-#            inputs, labels = data['inputs'], data['target']
-#            print(inputs.shape, labels.shape)
-#
-#            #with torch.autocast(device_type='cuda', dtype=torch.float16):
-#                #outputs = model.forward(inputs, 0)
-#                #outputs = model(inputs, 0)
-#            #outputs = model(inputs_tensor, 0)
-#            outputs = model(inputs, 0)
-#            print(outputs.shape)
-#
-#                #loss = loss_fn(outputs.transpose(1,2), labels)
-#            #loss = loss_fn(outputs.transpose(1,2), labels_tensor)
-#            loss = loss_fn(outputs.transpose(1,2), labels)
-#            #print(labels)
-#                #_, loss = model.generate(inputs, MAX_SEQ_LEN, logprobs=True)
-#                #loss.backward()
-#            loss.backward()
-#            #scaler.scale(loss).backward()
-#
-#            #if i % ACC_STEP == 0:
-#
-#            #    optimizer.step()
-#            optimizer.step()
-#            #scaler.step(optimizer)
-#
-#            #    optimizer.zero_grad()
-#            optimizer.zero_grad()
-#            #scaler.update()
-#
-#            losses.append(loss.item())
-#
-#            print("Loss per batch: {}".format(loss.item()))
-#
-#        epoch_loss = np.average(losses)
-#        loss_per_epoch.append(epoch_loss)
-#        print("Epoch: {0}, Epoch Loss: {1}".format(epoch+1, epoch_loss))
-#
-#    return loss_per_epoch
-#
-#print("-------------------BEGINNING_TRAINING--------------------")
-#loss_list = train()
-#print("-------------------FINISHED_TRAINING--------------------")
-# 
