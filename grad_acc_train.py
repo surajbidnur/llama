@@ -7,8 +7,6 @@ from tqdm import tqdm
 from torch.nn.utils import clip_grad_norm_
 from torch.utils.data import Dataset, DataLoader
 from llama import Llama
-#from llama.tokenizer import Tokenizer
-#from llama.model import ModelArgs, Transformer
 from dataclasses import dataclass
 import loralib as lora
 from torch import nn
@@ -156,6 +154,7 @@ def train(model, dataloader):
     scaler = torch.cuda.amp.GradScaler()
 
     model.train()
+    ds_len = len(dataloader)
 
     loss_list = list()
     gpu_mem_list = list()
@@ -169,6 +168,7 @@ def train(model, dataloader):
         accumulation_loss = 0
         perplexity = 0
         accumulation_done = True
+        ctr = 0
 
         with tqdm(dataloader, desc=f'Epoch: {epoch + 1}/{EPOCHS}', ascii=' >=') as pbar:
             for i, data in enumerate(pbar):
@@ -195,28 +195,34 @@ def train(model, dataloader):
 
                 scheduler.step(epoch + i / iters)
 
-                if (i + 1) % ACCUMULATION_STEPS == 0:
+                if (i + 1) % ACCUMULATION_STEPS == 0 and ctr != (ds_len // ACCUMULATION_STEPS):
                     clip_grad_norm_(model.parameters(), 1.0)
                     scaler.step(optimizer)
                     scaler.update()
-                    accumulation_done = True
                     acc_loss = accumulation_loss / ACCUMULATION_STEPS
                     perplexity += torch.exp(torch.tensor(acc_loss)).tolist()
                     pbar.set_postfix(train_loss=f"{acc_loss:.6f}", perplexity=f"{perplexity:.6f}")
                     pbar.update()
                     train_loss += acc_loss
                     accumulation_loss = 0
+                    ctr += 1
 
-            #if not accumulation_done:
-            #    scaler.step(optimizer)
-            #    scaler.update()
-            #    train_loss += loss.item
+                elif ctr == ds_len //ACCUMULATION_STEPS:
+                    clip_grad_norm_(model.parameters(), 1.0)
+                    scaler.step(optimizer)
+                    scaler.update()
+                    acc_loss = accumulation_loss / (ds_len % ACCUMULATION_STEPS)
+                    perplexity += torch.exp(torch.tensor(acc_loss)).tolist()
+                    pbar.set_postfix(train_loss=f"{acc_loss:.6f}", perplexity=f"{perplexity:.6f}")
+                    pbar.update()
+                    train_loss += acc_loss
+                    accumulation_loss = 0
 
         gpu_mem_list.append(torch.cuda.memory_allocated(device='cuda') / (1024 ** 3))
         print("Max GPU memory usage: {0:.2f}GB".format(max(gpu_mem_list)))
 
-        loss_list.append(train_loss / (iters // ACCUMULATION_STEPS))
-        avg_loss = train_loss / (len(dataloader) // ACCUMULATION_STEPS)
+        loss_list.append(train_loss / (ds_len // ACCUMULATION_STEPS))
+        avg_loss = train_loss / (ds_len // ACCUMULATION_STEPS)
         perplexity_list.append(torch.exp(torch.tensor(avg_loss)).tolist())
         print("Average training loss: {0:.6f}, Perplexity: {1:.6f}".format(avg_loss, torch.exp(torch.tensor(avg_loss)).tolist()))
 
