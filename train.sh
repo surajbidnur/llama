@@ -94,13 +94,6 @@ case $model_name in
         cd $script_dir
         python $script_dir/grad_acc_train.py
         ;;
-    "test")
-        cd $script_dir/llama
-        ln -sf model_lora_ckpt_more.py model.py
-        sed -i '94s/.*/        #model_args.n_layers = 32/g' generation.py
-        cd $script_dir
-        python $script_dir/grad_acc_train.py
-        ;;
     *)
         echo "Error: Unknown model name. Use -h for help."
         #exit 1

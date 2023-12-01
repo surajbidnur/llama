@@ -65,10 +65,8 @@ class Linear(nn.Linear, LoRALayer):
             return w
         if self.r > 0 and not False:
             result = F.linear(x, T(self.weight), bias=self.bias)            
-            #result = F.linear(x, T(self.weight), bias=False)            
             result += (self.lora_dropout(x) @ self.lora_A.transpose(0, 1) @ self.lora_B.transpose(0, 1)) * self.scaling
             return result
         else:
             return F.linear(x, T(self.weight), bias=self.bias)
-            #return F.linear(x, T(self.weight), bias=False)
 
