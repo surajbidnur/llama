@@ -10,11 +10,6 @@ from typing import List, Literal, Optional, Tuple, TypedDict
 
 import torch
 import torch.nn.functional as F
-from fairscale.nn.model_parallel.initialize import (
-    get_model_parallel_rank,
-    initialize_model_parallel,
-    model_parallel_is_initialized,
-)
 
 from llama.model import ModelArgs, Transformer
 from llama.tokenizer import Tokenizer
@@ -64,7 +59,7 @@ class Llama:
         Args:
             ckpt_dir (str): Path to the directory containing checkpoint files.
             tokenizer_path (str): Path to the tokenizer file.
-            max_seq_len (int): Maximum sequence length for input text.
+            max_seq_len (int): m sequence length for input text.
             max_batch_size (int): Maximum batch size for inference.
             model_parallel_size (Optional[int], optional): Number of model parallel processes.
                 If not provided, it's determined from the environment. Defaults to None.
@@ -77,33 +72,14 @@ class Llama:
                 or if the model parallel size does not match the number of checkpoint files.
 
         Note:
-            This method initializes the distributed process group, sets the device to CUDA,
+            This method initializes e distributed process group, sets the device to CUDA,
             and loads the pre-trained model and tokenizer.
 
         """
-        if not torch.distributed.is_initialized():
-            torch.distributed.init_process_group("nccl")
-        if not model_parallel_is_initialized():
-            if model_parallel_size is None:
-                model_parallel_size = int(os.environ.get("WORLD_SIZE", 1))
-            initialize_model_parallel(model_parallel_size)
-
-        local_rank = int(os.environ.get("LOCAL_RANK", 0))
-        torch.cuda.set_device(local_rank)
-
-        # seed must be the same in all processes
-        torch.manual_seed(seed)
-
-        if local_rank > 0:
-            sys.stdout = open(os.devnull, "w")
-
         start_time = time.time()
         checkpoints = sorted(Path(ckpt_dir).glob("*.pth"))
         assert len(checkpoints) > 0, f"no checkpoint files found in {ckpt_dir}"
-        assert model_parallel_size == len(
-            checkpoints
-        ), f"Loading a checkpoint for MP={len(checkpoints)} but world size is {model_parallel_size}"
-        ckpt_path = checkpoints[get_model_parallel_rank()]
+        ckpt_path = checkpoints[0]
         checkpoint = torch.load(ckpt_path, map_location="cpu")
         with open(Path(ckpt_dir) / "params.json", "r") as f:
             params = json.loads(f.read())
@@ -115,8 +91,16 @@ class Llama:
         )
         tokenizer = Tokenizer(model_path=tokenizer_path)
         model_args.vocab_size = tokenizer.n_words
-        torch.set_default_tensor_type(torch.cuda.HalfTensor)
+        #model_args.n_layers = 8
+        #torch.set_default_tensor_type(torch.cuda.HalfTensor)
         model = Transformer(model_args)
+
+        #pretrained_dict = dict()
+        #model_dict = model.state_dict()
+        #pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
+        #model_dict.update(pretrained_dict)
+        #model.load_state_dict(pretrained_dict, strict=False)
+
         model.load_state_dict(checkpoint, strict=False)
         print(f"Loaded in {time.time() - start_time:.2f} seconds")
 
@@ -184,7 +168,7 @@ class Llama:
             )
 
         for cur_pos in range(min_prompt_len, total_len):
-            logits = self.model.forward(tokens[:, prev_pos:cur_pos], prev_pos)
+            logits = self.model.forward(tokens[:, :cur_pos], prev_pos)
             if temperature > 0:
                 probs = torch.softmax(logits[:, -1] / temperature, dim=-1)
                 next_token = sample_top_p(probs, top_p)

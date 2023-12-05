@@ -9,6 +9,9 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
+import loralib as lora
+
+import torch.utils.checkpoint as checkpoint
 
 @dataclass
 class ModelArgs:
@@ -197,10 +200,10 @@ class Attention(nn.Module):
         self.n_rep = self.n_local_heads // self.n_local_kv_heads
         self.head_dim = args.dim // args.n_heads
 
-        self.wq = nn.Linear(
+        self.wq = lora.Linear(
             args.dim,
             args.n_heads * self.head_dim,
-            bias=False,
+            r=16, lora_alpha=32, lora_dropout=0.05
         )
 
         self.wk = nn.Linear(
@@ -209,10 +212,10 @@ class Attention(nn.Module):
             bias=False,
         )
 
-        self.wv = nn.Linear(
+        self.wv = lora.Linear(
             args.dim,
             self.n_kv_heads * self.head_dim,
-            bias=False,
+            r=16, lora_alpha=32, lora_dropout=0.05
         )
 
         self.wo = nn.Linear(
@@ -370,7 +373,7 @@ class TransformerBlock(nn.Module):
         h = x + self.attention.forward(
             self.attention_norm(x), start_pos, freqs_cis, mask
         )
-        out = h + self.feed_forward.forward(self.ffn_norm(h))
+        out = h + checkpoint.checkpoint(self.feed_forward.forward, self.ffn_norm(h), use_reentrant=False)
         return out
 
 
@@ -398,7 +401,6 @@ class Transformer(nn.Module):
         self.vocab_size = params.vocab_size
         self.n_layers = params.n_layers
 
-        
         self.tok_embeddings = nn.Embedding(
             params.vocab_size, params.dim
         )
@@ -410,7 +412,7 @@ class Transformer(nn.Module):
         self.norm = RMSNorm(params.dim, eps=params.norm_eps)
 
         self.output = nn.Linear(
-            params.dim, params.vocab_size, bias=False
+            params.dim, params.vocab_size, bias=False,
         )
 
         self.freqs_cis = precompute_freqs_cis(
@@ -419,7 +421,7 @@ class Transformer(nn.Module):
             self.params.dim // self.params.n_heads, self.params.max_seq_len * 2
         )
 
-    @torch.inference_mode()
+    #@torch.inference_mode()
     def forward(self, tokens: torch.Tensor, start_pos: int):
         """
         Perform a forward pass through the Transformer model.
