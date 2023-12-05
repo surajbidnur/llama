@@ -15,7 +15,7 @@ from torch import nn
 import numpy as np
 import matplotlib.pyplot as plt
 
-DATASET_PATH = 'alpaca_dataset/alpaca_data.json'
+DATASET_PATH = 'alpaca_data.json'
 TOKENIZER_PATH = '/project/saifhash_1190/llama2-7b/tokenizer.model'
 PARAMS_PATH = '/project/saifhash_1190/llama2-7b/params.json'
 CKPT_DIR = '/project/saifhash_1190/llama2-7b'
