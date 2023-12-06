@@ -61,7 +61,7 @@ model_name="$model_option"
 case $model_name in
     "vanilla")
         cd $script_dir/llama
-       ln -sf model_vanilla.py model.py
+        ln -sf model_vanilla.py model.py
         sed -i '94s/.*/        model_args.n_layers = 8/g' generation.py
         cd $script_dir
         python $script_dir/train.py

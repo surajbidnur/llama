@@ -19,7 +19,7 @@ PARAMS_PATH = '/project/saifhash_1190/llama2-7b/params.json'
 CKPT_DIR = '/project/saifhash_1190/llama2-7b'
 MODEL_PATH = '/project/saifhash_1190/llama2-7b/consolidated.00.pth'
 MAX_SEQ_LEN = 256
-MAX_BATCH_SIZE = 2
+MAX_BATCH_SIZE = 8
 EPOCHS = 5
 PROMPTS = 200
 IGNORE_INDEX = -100
@@ -302,8 +302,18 @@ if __name__ == "__main__":
     plot_graph([x+1 for x in range(EPOCHS)], mem, 'gpu_mem')
     plot_graph([x+1 for x in range(EPOCHS)], ppl, 'perplexity')
 
-    prompts = ["Large Language Models are",
-            "Who is the world's most famous painter?",]
+    prompts = ["Generate a list of 10 items a person might need for a camping trip",
+            "Who is the world's most famous painter?",
+            "Describe the function of a computer motherboard",
+            "What does DNA stand for",
+            "Charles Darwin's natural selection states that",
+            "The Hubble Space Telescope is a",
+            "The legend of Ramayana is",
+            """An inaugral address to the 2023 Diwali celebrations:
+            
+            Deviyo aur sajjano,
+            
+            Welcome to the """,]
 
     evaluate(llama_class, prompts, 64)
 
