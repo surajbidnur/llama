@@ -85,6 +85,7 @@ case $model_name in
         ln -sf model_lora.py model.py
         sed -i '94s/.*/        model_args.n_layers = 24/g' generation.py
         cd $script_dir
+        sed -i '269s/.*/    plt.savefig("grad_acc.png")/g' grad_acc_train.py
         python $script_dir/grad_acc_train.py
         ;;
     "ckpt")
@@ -92,6 +93,7 @@ case $model_name in
         ln -sf model_lora_ckpt.py model.py
         sed -i '94s/.*/        #model_args.n_layers = 32/g' generation.py
         cd $script_dir
+        sed -i '269s/.*/    plt.savefig("ckpt_png")/g' grad_acc_train.py
         python $script_dir/grad_acc_train.py
         ;;
     *)

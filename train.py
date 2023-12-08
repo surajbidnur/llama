@@ -231,6 +231,35 @@ def plot_graph(x, y, name):
 
     plt.savefig(name + '.png')
 
+def plot_metrics(loss_list, perplexity_list, gpu_mem_list):
+    epochs = range(1,len(loss_list) + 1)
+    plt.figure(figsize=(15, 5))
+
+    # Plot Loss
+    plt.subplot(1, 3, 1)
+    plt.plot(epochs, loss_list, 'o-r')
+    plt.title('Training Loss vs Epochs')
+    plt.xlabel('Epochs')
+    plt.ylabel('Loss')
+
+    # Plot Perplexity
+    plt.subplot(1, 3, 2)
+    plt.plot(epochs, perplexity_list, 'o-b')
+    plt.title('Perplexity vs Epochs')
+    plt.xlabel('Epochs')
+    plt.ylabel('Perplexity')
+
+    # Plot GPU Memory Usage
+    plt.subplot(1, 3, 3)
+    plt.plot(epochs, gpu_mem_list, 'o-g')
+    plt.title('GPU Memory Usage vs Epochs')
+    plt.xlabel('Epochs')
+    plt.ylabel('GPU Memory (GB)')
+
+    plt.tight_layout()
+    #plt.show()
+    plt.savefig('vanilla_model.png')
+
 if __name__ == "__main__":
 
     print("---------------EXECUTING VANILLA LLAMA TRAINING----------------")
@@ -269,9 +298,7 @@ if __name__ == "__main__":
     loss, mem, ppl = train(model, train_dataloader)
     print("Average loss: {0:.4f}, Avg GPU mem usage: {1:.2f}GB".format(sum(loss) / len(loss), sum(mem) / len(mem)))
 
-    plot_graph([x+1 for x in range(EPOCHS)], loss, 'loss')
-    plot_graph([x+1 for x in range(EPOCHS)], mem, 'gpu_mem')
-    plot_graph([x+1 for x in range(EPOCHS)], ppl, 'perplexity')
+    plot_metrics(loss, ppl, mem)
 
     prompts = ["Generate a list of 10 items a person might need for a camping trip",
             "Who is the world's most famous painter?",
